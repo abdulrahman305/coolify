@@ -5,7 +5,6 @@ namespace App\Livewire\Project\Application;
 use App\Models\Application;
 use App\Models\LocalFileVolume;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Livewire\Component;
 use Visus\Cuid2\Cuid2;
 
@@ -199,8 +198,8 @@ class General extends Component
                     return str($volume)->startsWith('/data/coolify');
                 })->unique()->values();
                 foreach ($volumes as $volume) {
-                    $source = Str::of($volume)->before(':');
-                    $target = Str::of($volume)->after(':')->beforeLast(':');
+                    $source = str($volume)->before(':');
+                    $target = str($volume)->after(':')->beforeLast(':');
 
                     LocalFileVolume::updateOrCreate(
                         [
@@ -347,7 +346,9 @@ class General extends Component
     public function submit($showToaster = true)
     {
         try {
-            $this->set_redirect();
+            if ($this->application->isDirty('redirect')) {
+                $this->set_redirect();
+            }
             $this->application->fqdn = str($this->application->fqdn)->replaceEnd(',', '')->trim();
             $this->application->fqdn = str($this->application->fqdn)->replaceStart(',', '')->trim();
             $this->application->fqdn = str($this->application->fqdn)->trim()->explode(',')->map(function ($domain) {

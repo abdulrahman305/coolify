@@ -79,6 +79,10 @@ function backup_dir(): string
 {
     return base_configuration_dir().'/backups';
 }
+function metrics_dir(): string
+{
+    return base_configuration_dir().'/metrics';
+}
 
 function generate_readme_file(string $name, string $updated_at): string
 {
@@ -158,10 +162,10 @@ function get_route_parameters(): array
 function get_latest_sentinel_version(): string
 {
     try {
-        $response = Http::get('https://cdn.coollabs.io/coolify/versions.json');
+        $response = Http::get('https://cdn.coollabs.io/sentinel/versions.json');
         $versions = $response->json();
 
-        return data_get($versions, 'coolify.sentinel.version');
+        return data_get($versions, 'sentinel.version');
     } catch (\Throwable $e) {
         //throw $e;
         ray($e->getMessage());
@@ -465,7 +469,7 @@ function data_get_str($data, $key, $default = null): Stringable
 {
     $str = data_get($data, $key, $default) ?? $default;
 
-    return Str::of($str);
+    return str($str);
 }
 
 function generateFqdn(Server $server, string $random)
@@ -929,12 +933,12 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                         $content = null;
                         $isDirectory = false;
                         if (is_string($volume)) {
-                            $source = Str::of($volume)->before(':');
-                            $target = Str::of($volume)->after(':')->beforeLast(':');
+                            $source = str($volume)->before(':');
+                            $target = str($volume)->after(':')->beforeLast(':');
                             if ($source->startsWith('./') || $source->startsWith('/') || $source->startsWith('~')) {
-                                $type = Str::of('bind');
+                                $type = str('bind');
                             } else {
-                                $type = Str::of('volume');
+                                $type = str('volume');
                             }
                         } elseif (is_array($volume)) {
                             $type = data_get_str($volume, 'type');
@@ -983,8 +987,8 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                             $slugWithoutUuid = Str::slug($source, '-');
                             $name = "{$savedService->service->uuid}_{$slugWithoutUuid}";
                             if (is_string($volume)) {
-                                $source = Str::of($volume)->before(':');
-                                $target = Str::of($volume)->after(':')->beforeLast(':');
+                                $source = str($volume)->before(':');
+                                $target = str($volume)->after(':')->beforeLast(':');
                                 $source = $name;
                                 $volume = "$source:$target";
                             } elseif (is_array($volume)) {
@@ -1028,7 +1032,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                 // Get variables from the service
                 foreach ($serviceVariables as $variableName => $variable) {
                     if (is_numeric($variableName)) {
-                        $variable = Str::of($variable);
+                        $variable = str($variable);
                         if ($variable->contains('=')) {
                             // - SESSION_SECRET=123
                             // - SESSION_SECRET=
@@ -1042,8 +1046,8 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                     } else {
                         // SESSION_SECRET: 123
                         // SESSION_SECRET:
-                        $key = Str::of($variableName);
-                        $value = Str::of($variable);
+                        $key = str($variableName);
+                        $value = str($variable);
                     }
                     if ($key->startsWith('SERVICE_FQDN')) {
                         if ($isNew || $savedService->fqdn === null) {
@@ -1133,7 +1137,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                             'key' => $key,
                             'service_id' => $resource->id,
                         ])->first();
-                        $value = Str::of(replaceVariables($value));
+                        $value = str(replaceVariables($value));
                         $key = $value;
                         if ($value->startsWith('SERVICE_')) {
                             $foundEnv = EnvironmentVariable::where([
@@ -1166,7 +1170,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                                         // }
                                     } else {
                                         if ($command->value() === 'URL') {
-                                            $fqdn = Str::of($fqdn)->after('://')->value();
+                                            $fqdn = str($fqdn)->after('://')->value();
                                         }
                                         EnvironmentVariable::create([
                                             'key' => $key,
@@ -1314,20 +1318,43 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                 data_forget($service, 'volumes.*.isDirectory');
                 data_forget($service, 'volumes.*.is_directory');
                 data_forget($service, 'exclude_from_hc');
-
-                // Remove unnecessary variables from service.environment
-                // $withoutServiceEnvs = collect([]);
-                // collect(data_get($service, 'environment'))->each(function ($value, $key) use ($withoutServiceEnvs) {
-                //     ray($key, $value);
-                //     if (!Str::of($key)->startsWith('$SERVICE_') && !Str::of($value)->startsWith('SERVICE_')) {
-                //         $k = Str::of($value)->before("=");
-                //         $v = Str::of($value)->after("=");
-                //         $withoutServiceEnvs->put($k->value(), $v->value());
-                //     }
-                // });
-                // ray($withoutServiceEnvs);
-                // data_set($service, 'environment', $withoutServiceEnvs->toArray());
+                data_set($service, 'environment', $serviceVariables->toArray());
                 updateCompose($savedService);
+
+                return $service;
+
+            });
+
+            $envs_from_coolify = $resource->environment_variables()->get();
+            $services = collect($services)->map(function ($service, $serviceName) use ($resource, $envs_from_coolify) {
+                $serviceVariables = collect(data_get($service, 'environment', []));
+                $parsedServiceVariables = collect([]);
+                foreach ($serviceVariables as $key => $value) {
+                    if (is_numeric($key)) {
+                        $value = str($value);
+                        if ($value->contains('=')) {
+                            $key = $value->before('=')->value();
+                            $value = $value->after('=')->value();
+                        } else {
+                            $key = $value->value();
+                            $value = null;
+                        }
+                        $parsedServiceVariables->put($key, $value);
+                    } else {
+                        $parsedServiceVariables->put($key, $value);
+                    }
+                }
+                $parsedServiceVariables->put('COOLIFY_CONTAINER_NAME', "$serviceName-{$resource->uuid}");
+                $parsedServiceVariables = $parsedServiceVariables->map(function ($value, $key) use ($envs_from_coolify) {
+                    $found_env = $envs_from_coolify->where('key', $key)->first();
+                    if ($found_env) {
+                        return $found_env->value;
+                    }
+
+                    return $value;
+                });
+
+                data_set($service, 'environment', $parsedServiceVariables->toArray());
 
                 return $service;
             });
@@ -1633,7 +1660,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
             // Get variables from the service
             foreach ($serviceVariables as $variableName => $variable) {
                 if (is_numeric($variableName)) {
-                    $variable = Str::of($variable);
+                    $variable = str($variable);
                     if ($variable->contains('=')) {
                         // - SESSION_SECRET=123
                         // - SESSION_SECRET=
@@ -1647,8 +1674,8 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                 } else {
                     // SESSION_SECRET: 123
                     // SESSION_SECRET:
-                    $key = Str::of($variableName);
-                    $value = Str::of($variable);
+                    $key = str($variableName);
+                    $value = str($variable);
                 }
                 if ($key->startsWith('SERVICE_FQDN')) {
                     if ($isNew) {
@@ -1692,7 +1719,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                         'application_id' => $resource->id,
                         'is_preview' => false,
                     ])->first();
-                    $value = Str::of(replaceVariables($value));
+                    $value = str(replaceVariables($value));
                     $key = $value;
                     if ($value->startsWith('SERVICE_')) {
                         $foundEnv = EnvironmentVariable::where([
@@ -1714,7 +1741,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                                     $fqdn = data_get($foundEnv, 'value');
                                 } else {
                                     if ($command?->value() === 'URL') {
-                                        $fqdn = Str::of($fqdn)->after('://')->value();
+                                        $fqdn = str($fqdn)->after('://')->value();
                                     }
                                     EnvironmentVariable::create([
                                         'key' => $key,
@@ -2281,4 +2308,11 @@ function isAnyDeploymentInprogress()
     }
     echo "No deployments in progress.\n";
     exit(0);
+}
+
+function generateSentinelToken()
+{
+    $token = Str::random(64);
+
+    return $token;
 }
