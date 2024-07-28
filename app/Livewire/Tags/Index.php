@@ -51,11 +51,11 @@ class Index extends Component
     {
         try {
             $this->applications->each(function ($resource) {
-                $deploy = new Deploy();
+                $deploy = new Deploy;
                 $deploy->deploy_resource($resource);
             });
             $this->services->each(function ($resource) {
-                $deploy = new Deploy();
+                $deploy = new Deploy;
                 $deploy->deploy_resource($resource);
             });
             $this->dispatch('success', 'Mass deployment started.');
