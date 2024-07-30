@@ -20,7 +20,7 @@
     "dependencies": {
         "@tailwindcss/forms": "0.5.7",
         "@tailwindcss/typography": "0.5.13",
-        "alpinejs": "3.14.0",
+        "alpinejs": "3.14.1",
         "ioredis": "5.4.1",
         "tailwindcss-scrollbar": "0.1.0"
     }
